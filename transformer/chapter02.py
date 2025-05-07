@@ -1,8 +1,13 @@
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 from datasets import load_dataset
+from sklearn.preprocessing import MinMaxScaler
+from transformers import AutoModel
 from transformers import DistilBertTokenizer
+from umap import UMAP
 
 emotions = load_dataset("emotion")
 print(emotions)
@@ -82,3 +87,45 @@ print(tokenize(emotions["train"][:2]))
 
 emotions_encode = emotions.map(tokenize, batched=True, batch_size=None)
 print(emotions_encode["train"].column_names)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = AutoModel.from_pretrained(model_ckpt).to(device)
+
+text = "This is a test"
+inputs = tokenizer(text, return_tensors="pt")
+print(f"입력된 텐서 크기 : {inputs['input_ids'].size()}")
+
+inputs = {k: v.to(device) for k, v in inputs.items()}
+print(inputs)
+with torch.no_grad():
+    outputs = model(**inputs)
+print(outputs)
+
+print(outputs.last_hidden_state.size())
+print(outputs.last_hidden_state[:, 0].size())
+
+
+def extract_hidden_states(batch):
+    inputs = {k: v.to(device) for k, v in batch.items() if k in tokenizer.model_input_names}
+    with torch.no_grad():
+        last_hidden_state = model(**inputs).last_hidden_state
+    return {"hidden_state": last_hidden_state[:, 0].cpu().numpy()}
+
+
+emotions_encode.set_format("torch", columns=["input_ids", "attention_mask", "label"])
+emotion_hidden = emotions_encode.map(extract_hidden_states, batched=True)
+
+print(emotion_hidden["train"].column_names)
+
+x_train = np.array(emotion_hidden["train"]["hidden_state"])
+x_valid = np.array(emotion_hidden["validation"]["hidden_state"])
+y_train = np.array(emotion_hidden["train"]["label"])
+y_valid = np.array(emotion_hidden["validation"]["label"])
+
+print(x_train.shape, x_valid.shape)
+
+x_scaled = MinMaxScaler().fit_transform(x_train)
+mapper = UMAP(n_components=2, metric='cosine').fit(x_scaled)
+df_emb = pd.DataFrame(mapper.embedding_, columns=["X", "Y"])
+df_emb["label"] = y_train
+print(df_emb.head())
