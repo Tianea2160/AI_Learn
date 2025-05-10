@@ -137,3 +137,4 @@ mask = torch.tril(torch.ones(seq_len, seq_len)).unsqueeze(0)
 config.num_labels = 3
 encoder_classifier = TransformerForSequenceClassification(config)
 print(encoder_classifier(inputs.input_ids).size())
+print(encoder_classifier(inputs.input_ids))
